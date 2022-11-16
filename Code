@@ -1,0 +1,225 @@
+---
+title: "CMSE381 final report: Analysis on Avengers Data"
+author: "Xingyu Yang"
+date: "4/18/2021"
+output: pdf_document
+---
+
+**Project Proposal**
+
+In the history of Marvel, hundreds of Superheros and Legends are told. However, the group of avengers diminished over time since many of them died throughout the story. Wondering what have caused the first death ('Death1' in the data), we want to fit a few models to see if any features have an impact on the death as well as to predict whether the avenger will die based on those features including their time of appearance, year they join and so on.
+
+**Take a look at the data**
+```{r, include=FALSE}
+setwd('/Users/xiaoba/downloads')
+avengers<-read.csv('avengers.csv')
+head(avengers,10)
+```
+According to the structure of the data, it contains 173 rows and 21 variables. 18 of the variables are Factors and 3 of then are integers. According to the summary for the 3 integer variable, the statistics for them are shown in the below table.
+```{r, include=FALSE}
+dim(avengers)
+str(avengers)
+```
+```{r, echo=FALSE}
+summary(avengers[,c(3,8,9)])
+```
+
+**Regenerate the Report**
+
+To compare with the results in the Article _Joining The Avengers Is As Deadly As Jumping Off A Four-Story Building_, I did some simple analysis on the Avenger Data. These histogram and boxplot below help to visualize general distributions for each features in the Data.
+
+```{r, echo=FALSE}
+par(mfrow=c(3,3))
+hist(avengers$Appearances)
+hist(avengers$Year)
+barplot(table(avengers$Current.),width = 0.05, space = 1, names.arg = c('NO','YES'), main ='distribution of Current')
+barplot(table(avengers$Gender),width = 0.05, space = 1, names.arg = c('FEMALE','MALE'), main ='distribution of Gender')
+barplot(table(avengers$Honorary),width = 0.05, space = 0.2, names.arg = c('Academy','Full','Honorary','Probationary'), main ='distribution of Honorary')
+barplot(table(avengers$Gender),width = 0.05, space = 1, names.arg = c('FEMALE','MALE'), main ='distribution of Gender')
+barplot(c(nrow(avengers[avengers$Death1=='YES',]),nrow(avengers[avengers$Return1=='YES',]),nrow(avengers[avengers$Death2=='YES',]),nrow(avengers[avengers$Return2=='YES',]),nrow(avengers[avengers$Death3=='YES',]),nrow(avengers[avengers$Return3=='YES',]),nrow(avengers[avengers$Death4=='YES',]),nrow(avengers[avengers$Return4=='YES',]),nrow(avengers[avengers$Death5=='YES',]),nrow(avengers[avengers$Return5=='YES',])),names.arg=c('Death1','Return1','Death2','Return2','Death3','Return3','Death4','Return4','Death5','Return5'), main = 'barplot for deaths and returns')
+
+```
+
+If we count the total number of death for all avengers, we can see that the percentage is around 40%.
+```{r, include=FALSE}
+print('number of avengers death at lest once:')
+sum(avengers$Death1=='YES')
+print('The percentage is')
+sum(avengers$Death1=='YES')/nrow(avengers)
+```
+
+If we do an analysis on the recovery rate, we get the statistic below: The total number of deaths is 89. The total number of returns is 57. The percentage of avengers recovered from a 2nd or 3rd death are both 50%.
+```{r, include=FALSE}
+print('The total number of Deaths')
+sum(avengers$Death1=='YES')+sum(avengers$Death2=='YES')+sum(avengers$Death3=='YES')+sum(avengers$Death4=='YES')+sum(avengers$Death5=='YES')
+print('The total number of returns')
+sum(avengers$Return1=='YES')+sum(avengers$Return2=='YES')+sum(avengers$Return3=='YES')+sum(avengers$Return4=='YES')+sum(avengers$Return5=='YES')
+print('percentage avengers recovered from a second death')
+sum(avengers$Return2=='YES')/sum(avengers$Death2=='YES')
+print('percentage avengers recovered from a third death')
+sum(avengers$Return3=='YES')/sum(avengers$Death3=='YES')
+```
+
+Now let's promote our 'MVP of Death and Return' to the Avenger that Recovered five times: Jocasta!!
+```{r, echo=FALSE}
+avengers[avengers$Return5=='YES',]
+```
+Finally, Along with Avengers' 53 years in operation, the number of total death haven't been changed much through year 1900 to 1960, however, it increases steeply from around 1960 all the way to the year 2015.
+
+```{r,echo=FALSE}
+order_aven<-avengers[order(avengers$Year),]
+death_c<-rep(0,nrow(order_aven))
+sum_d<-0
+for (n in 1:nrow(order_aven)){
+  sum_d<-sum_d+(order_aven[n,]$Death1=='YES')+(order_aven[n,]$Death2=='YES')+(order_aven[n,]$Death3=='YES')+(order_aven[n,]$Death4=='YES')+(order_aven[n,]$Death5=='YES')
+  death_c[n]<-sum_d
+}
+plot(order_aven$Year,death_c,type='l', xlab='Year', ylab ='Number of total Death', main = 'Trend of total deaths along years')
+```
+
+**Designing new models**
+
+The paper only did some statistical analysis on the mortality rate as well as the recovery rate for Avengers, but did not state exactly what features are impacting the Death variable. Concerning whether a character will die whenever I watch the series of Avengers, instead of the theoretical reasons, how in fact the numeric numbers affect the death for each character? Thus, I would like to fit some models to analyze.
+
+In order to fit a model for predicting Death1, we will use both logistic regression and K-nearest Neighbors to fit the model, applying cross-validation on both of them to tune the parameters, and calculate the test errors with randomly generated train/test datasets
+
+**Cleaning the data**
+
+Considering the difficulty for converting variables, I choose to exclude the variable 'URL', 'Name.Alias', 'Probationary.Introl', 'Full.Reserve.Avengers.Intro' and 'Notes'. Also, since there are many missing values for 'Return1', 'Death2', 'Return2', 'Death3','Return3', 'Death4', 'Return4', 'Death5' and 'Return5' and all these features are depended on our response variable, I choose to dropped these columns. Thus, we are using all other variables for modeling. I also droped row 76 and 77 since there are only to 'Probationary' in the Honorary and this might cause bias in our result.
+```{r, include=FALSE}
+dat<-avengers[,c(3,4,5,8,9,10,11)]
+probationary<-dat[dat$Honorary=='Probationary',]
+print(probationary)
+dat<-dat[-c(76,77),]
+head(dat)
+```
+
+Now let's make a pair plot to see the realtions between all variables.
+```{r, include=FALSE}
+library(corrplot)
+```
+```{r, echo=FALSE}
+pairs(dat)
+dat<-dat[,-5]
+```
+
+According to the paired scatterplot matrices, we can see that the variable 'Year' and 'Years.since.joining' are proportional to each other, therefore, I only keep 'Year' as a predicting feature to eliminate the repeat in predictor features. Then we split the data into a train set and a test set with drawing random samples.
+
+```{r, include=FALSE}
+set.seed(10)
+train<-sample(nrow(dat),83)
+test=-train
+dat.train<-dat[train,]
+dat.test<-dat[test,]
+```
+
+**Logistic regression**
+
+First, we want to fit logistic regressions with the formula $Death1 = \beta_0+\beta_1*Appearances+\beta_2*Current.+\beta_3*Gender+\beta_4*Year+\beta_5*Honorary$. We apply a LOOCV to the entire dataset to see the performance of this model. The error estimated is 0.4210526.
+```{r, include=FALSE}
+err<-0
+for (i in 1:nrow(dat)){
+  glm_fit<-glm(Death1~., data=dat[-i,], family = 'binomial')
+  pred_glm<-predict(glm_fit, dat[i,,drop=FALSE], type='response')
+  result_glm<-ifelse(pred_glm<0.5,'NO','YES')
+  err<-err+as.numeric(result_glm!=dat[i,]$Death1)
+  
+}
+error<-err/nrow(dat)
+print(error)
+```
+
+Then, noting the non-normal distribution for Appearances, I log transfer the Appearances into a more normaly distributed shape as shown in the graph below
+
+```{r, echo=FALSE}
+hist(log(dat$Appearances), xlab='log of Appearances', main='Histogram of log transfer of Appearance')
+
+```
+
+However, the LOOCV error for the model $Death1 = \beta_0+\beta_1*log(Appearances)+\beta_2*Current.+\beta_3*Gender+\beta_4*Year+\beta_5*Honorary$ is 0.4327485 which is even slightly higher than the previous model. 
+```{r, include=FALSE}
+err<-0
+for (i in 1:nrow(dat)){
+  glm_fit<-glm(Death1~log(Appearances)+Current.+Gender+Year+Honorary, data=dat[-i,], family = 'binomial')
+  pred_glm<-predict(glm_fit, dat[i,,drop=FALSE], type='response')
+  result_glm<-ifelse(pred_glm<0.5,'NO','YES')
+  err<-err+as.numeric(result_glm!=dat[i,]$Death1)
+  
+}
+error<-err/nrow(dat)
+print(error)
+```
+
+Thus, I choose to use the first formula to fit a logistic regression on the training set, and got an Test Error of 0.3522727 based on the data. The table shows the first 5 rows of the predicted values along with the true results.
+```{r,echo=FALSE}
+glm_fit<-glm(Death1~.,dat.train,family='binomial')
+pred_glm<-predict(glm_fit, dat.test, type='response')
+result_glm<-ifelse(pred_glm<0.5,'NO','YES')
+com_dat<-data.frame('predicted values'=result_glm,'true values'=dat.test$Death1)
+head(com_dat,5)
+err<-sum(result_glm!=dat.test$Death1)/nrow(dat.test)
+print(err)
+```
+
+_KNN method_
+
+Now we perform KNN method on model fitting with transfering each factor columns into type 'numeric'. Current: 0-NO, 1-YES, Gender: 0-MALE, 1-FEMALE, Honorary: 0-Academy, 1-Honorary, 2-Full, Death1: 0-NO, 1-YES.
+```{r, include=FALSE}
+num.dat<-dat
+num.dat$Current.<-ifelse(num.dat$Current.=='NO',0,1)
+num.dat$Gender<-ifelse(num.dat$Gender=='MALE',0,1)
+num.dat$Honorary<-as.character(num.dat$Honorary)
+num.dat$Honorary[num.dat$Honorary=='Academy']<-0
+num.dat$Honorary[num.dat$Honorary=='Honorary']<-1
+num.dat$Honorary[num.dat$Honorary=='Full']<-2
+num.dat$Honorary<-as.integer(num.dat$Honorary)
+num.dat$Death1<-ifelse(num.dat$Death1=='NO',0,1)
+num.train<-num.dat[train,]
+num.test<-num.dat[test,]
+```
+
+To tune the best value of K, I perform a LOOCV again with KNN. Iterating through K=2,5,10,15,20,25,30. The result shows that K=15 has the lowest LOOCV error and therefore we will use this value to do train test fit.
+```{r, include=FALSE}
+library(class)
+set.seed(10)
+fold.index <- cut(sample(1:nrow(num.train)),breaks=10,labels=FALSE)
+k_error<-rep(0,7)
+n<-1
+for (k in c(2,5,10,15,20,25,30)){
+  error<-0
+  for (i in 1:10) {
+    result_knn<-knn(num.train[fold.index!=i,-6],num.train[fold.index==i,-6],num.train[fold.index!=i,6],k=k)
+    error<-error+sum(result_knn!=num.train[fold.index==i,6])
+  }
+  k_error[n]<-error/nrow(num.train)
+  n<-n+1
+}
+min_knn<-which.min(k_error)
+best_k<-c(2,5,10,15,20,25,30)[which.min(k_error)]
+best_k
+mse_knn<-k_error[min_knn]
+mse_knn
+```
+
+```{r, echo=FALSE}
+data.frame('k values'=c(2,5,10,15,20,25,30),'LOOCV error'=k_error)
+```
+
+The Test Error for K-nearest neighbors method is 0.3636364, comparing to the Test Error of logistic regression, logistic regression performs better than KNN.
+```{r, include=FALSE}
+pred_knn<-knn(num.train[,-6],num.test[,-6],num.train[,6],k=15)
+error_knn<-sum(pred_knn!=num.test[,6])/nrow(num.test)
+error_knn
+```
+
+**Discussion and conclusions**
+
+After fitting the three models on predicting 'Death1', the error rate for all the models are around 0.36. Obviously, these models do not perform perfectly since the errors are relavantly large comparing to rigorous data processing. And I came up with three reasons that would cause this:
+
+1. Just like what is stated in the article, 'the only thing that can truly kill an Avenger is Marvel Studios not having the rights to the character or the performer portraying them'. So the Death of a character does not depend on any features at all.
+
+2. The number of set of data is pretty small so we don't have enough information to fit a best model.
+
+3. There are many more features for each character that can impact their death in a more significant way, but are not contained in this dataset.
+
+In conclusion, although our models are not perfect, the test error 0.36 is still smaller than 50%. Fortunately, we still made some progress and are able to predict most of the 'First Death' with a logistic regression and prove that the variable 'Death1' is indeed someway impacted by the features.
